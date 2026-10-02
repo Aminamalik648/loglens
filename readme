@@ -1,0 +1,80 @@
+# 🔍 LogLens
+
+**Plain-English log analysis with MITRE ATT&CK mapping, running serverless on AWS Lambda.**
+
+LogLens helps students and early-career analysts make sense of security logs. Paste a Linux `auth.log` or a Windows Security event export, and LogLens flags brute-force attempts, suspicious logins and privilege abuse, then maps each finding to MITRE ATT&CK techniques so learners can connect raw log lines to attacker behavior.
+
+**🌐 Live demo:** https://nt22iistdpdmzs3x3osvwzny7m0vmnyy.lambda-url.ap-southeast-2.on.aws/
+
+Built for the **AWS Zero to Shipped Hackathon** (Workplace Efficiency category, Community track), using [Kiro](https://kiro.dev) as the coding agent connected to AWS.
+
+## ✨ Features
+- Auto-detects Linux `auth.log` vs Windows Security events
+- Counts failed logins per source and flags brute force (5 or more failures)
+- Raises **High** severity when a successful login follows repeated failures
+- Additional Linux detections: invalid usernames, direct root login attempts, repeated failed `sudo`
+- Windows detections: repeated failed logons (4625), successful logon after failures including RDP logon type 10 (4624), user account created (4720), and audit log cleared (1102)
+- Each finding shows its **MITRE ATT&CK** technique with a link, first/last seen, and a short "why this matters" note
+- **Copy as Markdown report** to share findings
+- Built-in Linux and Windows sample logs to try instantly
+
+## 🗺️ MITRE ATT&CK mapping
+| Finding | Technique |
+|---|---|
+| Repeated failed logins | T1110.001 Brute Force: Password Guessing |
+| Successful login after failures | T1078 Valid Accounts |
+| Successful SSH login | T1021.004 Remote Services: SSH |
+| Repeated failed sudo | T1548.003 Sudo and Sudo Caching |
+| [Windows rules you implemented] | [technique IDs] |
+
+## 🏗️ Architecture
+```
+Browser ──► Lambda Function URL ──► AWS Lambda (Python)
+                                      ├─ GET /          → one-page UI
+                                      └─ POST /analyze  → parse + detect + MITRE map
+                                      └─► CloudWatch Logs
+```
+- **AWS Lambda** (Python, no external dependencies) serves both the page and the API
+- **Lambda Function URL** provides the public endpoint
+- **IAM execution role** with CloudWatch Logs permissions only
+- No database, no servers
+
+## 🔐 Security design
+- Log content is treated as **untrusted input**: size cap, escaped output, nothing from the log is executed or fetched
+- MITRE links are hardcoded, never built from log content
+- The execution role is least-privilege (CloudWatch Logs only)
+- The public invoke permission is limited to Function URL calls (`lambda:InvokedViaFunctionUrl`)
+- Tested with a script-injection payload: no code runs
+
+## 🚀 Run or deploy it yourself
+1. Create a Lambda function using a current Python runtime [e.g. `python3.x`] and upload the contents of `lambda/`.
+2. Set the handler to `[handler.lambda_handler, check your file]`.
+3. Attach an execution role with CloudWatch Logs permissions only.
+4. Create a Function URL with auth type `NONE`.
+5. Add **both** permissions the public URL needs:
+```bash
+   aws lambda add-permission --function-name loglens \
+     --statement-id UrlPolicyInvokeURL --action lambda:InvokeFunctionUrl \
+     --principal "*" --function-url-auth-type NONE
+
+   aws lambda add-permission --function-name loglens \
+     --statement-id UrlPolicyInvokeFunction --action lambda:InvokeFunction \
+     --principal "*" --invoked-via-function-url
+```
+6. Open the Function URL and click **Load Linux sample**.
+
+⚠️ A public Function URL has no login. Use sample data only and don't paste real production logs.
+
+## 🤖 How it was built
+Built with **Kiro** and the **Agent Toolkit for AWS**, connected to my AWS account through a dedicated CLI profile. I chose the scope, reviewed every command before approving it, and tested each version in the browser. Features were added in stages (brute-force detection → MITRE mapping → more Linux detections → Windows events), with a rollback point saved before each upgrade.
+
+**Challenges fixed along the way:** a Function URL `403 Forbidden` (missing `lambda:InvokeFunction` permission), terminal install loops, and a regex bug in sudo username extraction.
+
+## 🛣️ What's next
+- Amazon Bedrock explanations for unmatched lines (with prompt-injection protection and cost limits)
+- Wazuh integration
+- More log sources and saved scan history
+
+## ⚠️ Disclaimer
+LogLens is an educational tool built for learning. It uses simple rules and isn't a replacement for a SIEM or professional incident response.
+
